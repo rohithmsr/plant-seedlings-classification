@@ -25,6 +25,7 @@ instance/
 # Custom data directory
 uploads/*
 models/*
+train-images/*
 
 !uploads/README.md
 !models/README.md
