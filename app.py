@@ -7,16 +7,12 @@ load_dotenv()
 from flask import Flask, request, render_template, jsonify
 
 # TensorFlow and tf.keras
-import tensorflow as tf
-from tensorflow import keras
-
-from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
 
 # Some utilites
 import numpy as np
 import boto3
+import cv2
 from util import base64_to_pil
 
 # env vars
@@ -29,6 +25,36 @@ app = Flask(__name__)
 from tensorflow.keras.models import load_model
 MODEL_NAME = 'plantspecies_CNN_model.h5'
 MODEL_PATH = 'models/my_image_classifier_from_s3.h5'
+
+SPECIES = [
+    'Black-grass', 
+    'Charlock', 
+    'Cleavers', 
+    'Common Chickweed', 
+    'Common wheat', 
+    'Fat Hen', 
+    'Loose Silky-bent', 
+    'Maize', 
+    'Scentless Mayweed', 
+    'Shepherds Purse', 
+    'Small-flowered Cranesbill', 
+    'Sugar beet'
+]
+
+PLANTS_TYPE = {
+    'Scentless Mayweed': 1, 
+    'Common wheat': 0, 
+    'Charlock': 0, 
+    'Black-grass': 1,
+    'Sugar beet': 0, 
+    'Loose Silky-bent': 0, 
+    'Maize': 0, 
+    'Cleavers': 1,
+    'Common Chickweed': 1, 
+    'Fat Hen': 1, 
+    'Small-flowered Cranesbill': 1,
+    'Shepherds Purse': 1
+}
 
 s3 = boto3.resource(
     service_name = 's3',
@@ -47,18 +73,15 @@ model.make_predict_function()          # Necessary
 print('Model loaded. Start serving...')
 
 def model_predict(img, model):
-    img = img.resize((224, 224))
+    opencvImage = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-    # Preprocessing the image
-    x = image.img_to_array(img)
-    # x = np.true_divide(x, 255)
-    x = np.expand_dims(x, axis=0)
+    img_arr = [cv2.resize(opencvImage, (256, 256))]
+    img_X = np.asarray(img_arr)
 
-    # Be careful how your trained model deals with the input
-    # otherwise, it won't make correct prediction!
-    x = preprocess_input(x, mode='tf')
+    # Normalization of the Image Data
+    img_X = img_X.astype('float32') / 255
 
-    preds = model.predict(x)
+    preds = model.predict(img_X)
     return preds
 
 
@@ -74,21 +97,23 @@ def predict():
         # Get the image from post request
         img = base64_to_pil(request.json)
 
-        # Save the image to ./uploads
-        # img.save("./uploads/image.png")
-
         # Make prediction
         preds = model_predict(img, model)
 
-        # Process your result for human
-        pred_proba = "{:.3f}".format(np.amax(preds))    # Max probability
-        pred_class = decode_predictions(preds, top=1)   # ImageNet Decode
+        pred_class = np.argmax(preds, axis=1)
+        # print(pred_class)
 
-        result = str(pred_class[0][0][1])               # Convert to string
-        result = result.replace('_', ' ').capitalize()
-        
-        # Serialize the result, you can add additional fields
-        return jsonify(result=result, probability=pred_proba)
+        species_name = SPECIES[pred_class[0]]
+        species_type = 'WEED' if PLANTS_TYPE[species_name] else 'PLANT'
+
+        result = species_type + ' -> ' + species_name
+
+        # Serialize the result
+        return jsonify(
+            result=result,
+            species_name=species_name, 
+            species_type=species_type
+        )
 
     return None
 
